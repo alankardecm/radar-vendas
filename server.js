@@ -7,7 +7,7 @@ dotenv.config();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.use(express.json({ limit: "15mb" }));
+app.use(express.json({ limit: "25mb" }));
 app.use(express.static(join(__dirname, "public")));
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
@@ -334,9 +334,12 @@ app.post("/api/analisar", async (req, res) => {
 
     const fachada = await lerFachada(imagem, mime || "image/jpeg");
 
-    // GPS primeiro: define cidade/UF para escopar as buscas
+    // GPS primeiro: define cidade/UF para escopar as buscas.
+    // Em campo (celular na fachada) o GPS é a verdade; a "cidade" que o Gemini
+    // infere da placa é palpite (e tende a chutar São Paulo) — por isso GPS tem
+    // prioridade, e a cidade da fachada só entra como fallback se não houver GPS.
     const gps = await enderecoPorGps(lat, lng);
-    const cidade = fachada.cidade || gps?.cidade || null;
+    const cidade = gps?.cidade || fachada.cidade || null;
 
     // Confirma a empresa no Places (nome oficial, telefone, site, avaliacoes)
     const places = await buscarPlaces(fachada.nome_fantasia, fachada.ramo, cidade);

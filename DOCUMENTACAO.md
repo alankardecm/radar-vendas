@@ -4,7 +4,7 @@
 > um **dossiê comercial** com inteligência de venda dos serviços NetTurbo.
 
 **Pasta oficial:** `C:\Users\alan.moreira\Documents\00 - 2026\36 - PROSPECÇÃO APP`
-**Status:** PoC funcional no ar (29/06/2026), acessível no celular via Cloudflare Tunnel.
+**Status:** PoC no ar e **DEPLOYADO na VPS pessoal (30/06/2026)** via pm2 + Cloudflare Tunnel (HTTPS). Saiu do "PC ligado".
 **Custo atual:** R$ 0 (Gemini free tier + Google Places crédito grátis).
 
 ---
@@ -84,8 +84,23 @@ npm start                   # http://localhost:4500
 cloudflared tunnel --url http://localhost:4500
 # copia a URL https://....trycloudflare.com e abre no celular
 ```
-> O PC precisa ficar ligado com o app + túnel rodando. A URL do *quick tunnel* é
-> temporária (muda a cada execução). Para URL fixa, depois usar túnel nomeado.
+> A URL do *quick tunnel* é temporária (muda a cada execução). Para URL fixa, usar túnel nomeado
+> (exige domínio gerenciado no Cloudflare).
+
+### Deploy em produção na VPS (feito 30/06/2026)
+- **VPS pessoal:** `217.196.61.190` (srv1121163), app em `/opt/radar-vendas`. Repo
+  `github.com/alankardecm/radar-vendas` (branch `main`).
+- **Passos na VPS:** `git clone` → `npm install` → criar `.env` (GEMINI_API_KEY, GOOGLE_PLACES_API_KEY,
+  `GEMINI_MODEL=gemini-2.5-flash`, `PORT=4500`) → `pm2 start server.js --name radar-vendas && pm2 save`.
+- **HTTPS:** `cloudflared` (instalado via repo apt oficial) como **quick tunnel** rodando no pm2:
+  `pm2 start cloudflared --name radar-tunnel -- tunnel --url http://localhost:4500 && pm2 save`.
+  A URL `https://....trycloudflare.com` aparece só no início do log e **muda a cada restart** —
+  pegar com: `grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /root/.pm2/logs/radar-tunnel-*.log`.
+- **Processos pm2:** `radar-vendas` (app) + `radar-tunnel` (HTTPS), ambos em `pm2 save` (sobrevivem a reboot).
+- **GOTCHAs:** warnings de ICMP/`ping_group_range` do cloudflared são inofensivos; `.env`/`.env.example`
+  tinham chaves reais → sanitizado (`.env` no `.gitignore`, placeholders no exemplo).
+- **Pendente:** URL FIXA via túnel nomeado (precisa domínio no Cloudflare); afinar `PORTFOLIO_NETTURBO`;
+  botão "Salvar oportunidade" no CRM/FUNTER.
 
 ### Chaves (.env)
 | Variável | Obrigatória | Onde pegar | Observação |
@@ -136,6 +151,7 @@ gerando **score de oportunidade** e **gancho de abordagem** — mais útil para 
 | CNPJ via fachada/site → BrasilAPI | ✅ |
 | GPS → cidade/UF/endereço | ✅ |
 | Acesso no celular (HTTPS via túnel) | ✅ |
+| Deploy na VPS (pm2 + cloudflared) | ✅ 30/06 |
 | Self-host base Receita (nome→CNPJ) | ⏸️ adiado |
 
 ---
@@ -144,7 +160,7 @@ gerando **score de oportunidade** e **gancho de abordagem** — mais útil para 
 
 1. **Afinar `PORTFOLIO_NETTURBO`** em `server.js` com os serviços e nomes comerciais reais.
 2. **Botão "Salvar oportunidade"** → gravar dossiê + score no CRM/FUNTER (definir destino).
-3. **Túnel/host fixo** se virar uso recorrente (URL estável; eventualmente sair do "PC ligado").
+3. ~~Sair do "PC ligado"~~ ✅ feito (VPS 30/06). Falta **URL fixa** (túnel nomeado, exige domínio Cloudflare).
 4. **Decidir o produto:** módulo no Hub (`/radar-vendas`) ou app standalone (linha do AM OS).
 5. (Opcional) Retomar **self-host Receita** se o CNPJ garantido por nome virar requisito.
 6. Refinar prompt do score por **segmento** (clínica, varejo, indústria…) e validar em campo.

@@ -58,21 +58,32 @@ const resultado = document.getElementById("resultado");
 let coords = null;
 
 btn.onclick = () => {
-  // tenta pegar GPS junto
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (p) => (coords = { lat: p.coords.latitude, lng: p.coords.longitude }),
-      () => (coords = null),
-      { enableHighAccuracy: true, timeout: 5000 }
-    );
-  }
+  // dispara o GPS já no clique (aquece a leitura); o valor real é aguardado no envio
+  pedirGps();
   file.click();
 };
+
+// Pega a localização atual como Promise (resolve coords ou null). Guarda em `coords`.
+function pedirGps() {
+  if (!navigator.geolocation) return Promise.resolve(null);
+  return new Promise((res) => {
+    navigator.geolocation.getCurrentPosition(
+      (p) => { coords = { lat: p.coords.latitude, lng: p.coords.longitude }; res(coords); },
+      () => res(coords),  // mantém o último coords se falhar
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+    );
+  });
+}
 
 file.onchange = async () => {
   const f = file.files[0];
   if (!f) return;
-  const dataUrl = await toDataURL(f);
+  status.innerHTML = '<div class="spinner"></div>Preparando imagem e localização...';
+
+  // ESPERA o GPS de verdade antes de enviar (senão a cidade fica errada).
+  await pedirGps();
+
+  const dataUrl = await shrinkImage(f, 1600, 0.82);  // reduz p/ não estourar o limite
   preview.src = dataUrl;
   preview.style.display = "block";
   resultado.innerHTML = "";
@@ -94,10 +105,27 @@ file.onchange = async () => {
   }
 };
 
-function toDataURL(file) {
-  return new Promise((res) => {
+// Redimensiona a foto (max lado `maxDim`px) e recomprime em JPEG — corta o tamanho
+// drasticamente (foto de 8MB -> ~200-400KB), evita estourar o body e acelera o Gemini.
+function shrinkImage(file, maxDim, quality) {
+  return new Promise((resolve) => {
     const fr = new FileReader();
-    fr.onload = () => res(fr.result);
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let { width: w, height: h } = img;
+        if (Math.max(w, h) > maxDim) {
+          const k = maxDim / Math.max(w, h);
+          w = Math.round(w * k); h = Math.round(h * k);
+        }
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => resolve(fr.result); // fallback: manda como veio
+      img.src = fr.result;
+    };
     fr.readAsDataURL(file);
   });
 }
