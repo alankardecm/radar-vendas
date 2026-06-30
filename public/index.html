@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Radar de Vendas — PoC</title>
+<style>
+  :root { --verde:#16a34a; --escuro:#0f172a; --cinza:#64748b; --borda:#e2e8f0; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         background:#f1f5f9; color:var(--escuro); }
+  header { background:var(--verde); color:#fff; padding:16px; text-align:center;
+           font-weight:700; font-size:18px; position:sticky; top:0; z-index:10; }
+  header small { display:block; font-weight:400; opacity:.85; font-size:12px; margin-top:2px; }
+  main { max-width:560px; margin:0 auto; padding:16px; }
+  .acoes { display:flex; gap:10px; margin-bottom:14px; }
+  button { flex:1; border:0; border-radius:12px; padding:16px; font-size:16px;
+           font-weight:600; cursor:pointer; }
+  .primario { background:var(--verde); color:#fff; }
+  .primario:disabled { opacity:.5; }
+  img.preview { width:100%; border-radius:12px; display:none; margin-bottom:14px; }
+  .status { text-align:center; color:var(--cinza); padding:8px; font-size:14px; }
+  .card { background:#fff; border:1px solid var(--borda); border-radius:14px;
+          padding:16px; margin-bottom:14px; }
+  .card h3 { margin:0 0 10px; font-size:14px; text-transform:uppercase;
+             letter-spacing:.4px; color:var(--verde); }
+  .linha { display:flex; justify-content:space-between; gap:12px; padding:6px 0;
+           border-bottom:1px solid #f1f5f9; font-size:15px; }
+  .linha:last-child { border:0; }
+  .linha b { color:var(--cinza); font-weight:500; }
+  .linha span { text-align:right; font-weight:600; }
+  .vazio { color:#cbd5e1; }
+  .badge { display:inline-block; background:#dcfce7; color:#15803d; border-radius:20px;
+           padding:3px 10px; font-size:12px; font-weight:700; }
+  .spinner { border:3px solid #e2e8f0; border-top-color:var(--verde); border-radius:50%;
+             width:28px; height:28px; animation:spin 1s linear infinite; margin:14px auto; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>📡 Radar de Vendas <small>foto da fachada → dossiê da empresa</small></header>
+<main>
+  <input type="file" accept="image/*" capture="environment" id="file" hidden />
+  <div class="acoes">
+    <button class="primario" id="btnFoto">📷 Tirar foto da fachada</button>
+  </div>
+  <img class="preview" id="preview" />
+  <div class="status" id="status"></div>
+  <div id="resultado"></div>
+</main>
+
+<script>
+const file = document.getElementById("file");
+const btn = document.getElementById("btnFoto");
+const preview = document.getElementById("preview");
+const status = document.getElementById("status");
+const resultado = document.getElementById("resultado");
+let coords = null;
+
+btn.onclick = () => {
+  // tenta pegar GPS junto
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (p) => (coords = { lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => (coords = null),
+      { enableHighAccuracy: true, timeout: 5000 }
+    );
+  }
+  file.click();
+};
+
+file.onchange = async () => {
+  const f = file.files[0];
+  if (!f) return;
+  const dataUrl = await toDataURL(f);
+  preview.src = dataUrl;
+  preview.style.display = "block";
+  resultado.innerHTML = "";
+  status.innerHTML = '<div class="spinner"></div>Lendo a fachada, analisando o site e montando o dossiê...';
+
+  const [, mime, base64] = dataUrl.match(/^data:(.+);base64,(.+)$/);
+  try {
+    const r = await fetch("/api/analisar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imagem: base64, mime, ...(coords || {}) }),
+    });
+    const d = await r.json();
+    status.innerHTML = "";
+    if (d.erro) { status.textContent = "Erro: " + d.erro; return; }
+    render(d);
+  } catch (e) {
+    status.textContent = "Falha: " + e.message;
+  }
+};
+
+function toDataURL(file) {
+  return new Promise((res) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.readAsDataURL(file);
+  });
+}
+
+function v(x) {
+  if (x == null || x === "" || (Array.isArray(x) && !x.length))
+    return '<span class="vazio">—</span>';
+  return "<span>" + (Array.isArray(x) ? x.join(", ") : x) + "</span>";
+}
+function linha(label, val) {
+  return `<div class="linha"><b>${label}</b>${v(val)}</div>`;
+}
+function card(titulo, linhas) {
+  return `<div class="card"><h3>${titulo}</h3>${linhas}</div>`;
+}
+
+function render(d) {
+  const f = d.fachada || {};
+  let html = "";
+
+  html += card("📷 Lido da fachada " +
+    (f.confianca ? `<span class="badge">${f.confianca}</span>` : ""),
+    linha("Nome", f.nome_fantasia) +
+    linha("Ramo", f.ramo) +
+    linha("Telefones", f.telefones) +
+    linha("CNPJ", f.cnpj) +
+    linha("Site", f.site) +
+    linha("Redes", f.redes_sociais)
+  );
+
+  if (d.cnpj) {
+    const c = d.cnpj;
+    html += card("🏢 Cadastro CNPJ (Receita)" +
+      (d.cnpj_origem ? `<span class="badge" style="background:#dbeafe;color:#1d4ed8">via ${d.cnpj_origem.split(':')[0]}</span>` : ""),
+      linha("Razão social", c.razao_social) +
+      linha("Fantasia", c.nome_fantasia) +
+      linha("Situação", c.situacao) +
+      linha("Porte", c.porte) +
+      linha("CNAE", c.cnae) +
+      linha("Capital", c.capital_social) +
+      linha("Abertura", c.abertura) +
+      linha("Endereço", c.endereco) +
+      linha("Telefone", c.telefone) +
+      linha("E-mail", c.email) +
+      linha("Sócios", c.socios)
+    );
+  }
+
+  const intel = d.inteligencia;
+  if (intel && !intel.site_inacessivel && !intel.erro_parse) {
+    const score = Number(intel.score_oportunidade) || 0;
+    const cor = score >= 70 ? "#16a34a" : score >= 40 ? "#f59e0b" : "#94a3b8";
+    html += card("🎯 Oportunidade NetTurbo",
+      `<div style="text-align:center;margin:4px 0 12px">
+         <div style="font-size:38px;font-weight:800;color:${cor}">${score}<span style="font-size:16px;color:#94a3b8">/100</span></div>
+         <div style="background:#f1f5f9;border-radius:20px;height:10px;overflow:hidden;margin:8px 0">
+           <div style="width:${score}%;height:100%;background:${cor}"></div>
+         </div>
+       </div>` +
+      linha("Serviços-alvo", intel.servicos_netturbo_alvo) +
+      (intel.gancho_abordagem ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:10px;margin-top:8px;font-size:14px"><b>💬 Gancho:</b> ${intel.gancho_abordagem}</div>` : "")
+    );
+
+    html += card("🧠 Inteligência comercial (do site)",
+      linha("Resumo", intel.resumo) +
+      linha("Serviços", intel.servicos_oferecidos) +
+      linha("Porte aparente", intel.porte_aparente) +
+      linha("Indícios de TI", intel.indicios_ti) +
+      linha("E-mail", intel.email) +
+      linha("Redes", intel.redes_sociais)
+    );
+  } else if (intel && intel.site_inacessivel) {
+    html += card("🧠 Inteligência comercial", '<div class="status">Site não acessível (bloqueio/WAF ou sem site). Use os dados do Places abaixo.</div>');
+  }
+
+  if (d.places) {
+    const p = d.places;
+    html += card("📍 Google Places",
+      linha("Nome", p.nome) +
+      linha("Categoria", p.categoria) +
+      linha("Resumo", p.resumo) +
+      linha("Endereço", p.endereco) +
+      linha("Telefone", p.telefone) +
+      linha("Site", p.site) +
+      linha("Maps", p.maps ? `<a href="${p.maps}" target="_blank">abrir</a>` : "") +
+      linha("Avaliação", p.avaliacao ? `${p.avaliacao} ⭐ (${p.qtd_avaliacoes})` : "") +
+      linha("Horário", p.horario) +
+      linha("Status", p.status)
+    );
+  }
+
+  if (d.endereco_gps) {
+    html += card("🛰️ Endereço pelo GPS", linha("Local", d.endereco_gps));
+  }
+
+  if (!d.cnpj && f.cnpj) {
+    html += card("ℹ️ Dica", '<div class="status">CNPJ lido mas não encontrado na base. Confira os dígitos.</div>');
+  }
+
+  resultado.innerHTML = html;
+}
+</script>
+</body>
+</html>
